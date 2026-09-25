@@ -1381,12 +1381,11 @@ if results:
     )
 
 else:
-
     if uploaded:
         st.info(
             "No defence-related article was detected in the selected pages."
         )
-else:
-    st.info(
-        "Upload a newspaper PDF to begin."
-    )
+    else:
+        st.info(
+            "Upload a newspaper PDF to begin."
+        )
