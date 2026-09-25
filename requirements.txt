@@ -1,6 +1,5 @@
 streamlit
-PyMuPDF
-langdetect
-pandas
+pillow
 pytesseract
-Pillow
+pymupdf
+pandas
