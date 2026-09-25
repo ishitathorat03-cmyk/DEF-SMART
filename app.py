@@ -6,90 +6,107 @@ from collections import defaultdict
 import fitz  # PyMuPDF
 import pytesseract
 import streamlit as st
-from PIL import Image, ImageOps, ImageEnhance, ImageFilter
+
+from PIL import Image, ImageOps, ImageFilter
 
 
 # ============================================================
-# PAGE / OCR SETTINGS
+# PAGE CONFIG
+# ============================================================
+
+st.set_page_config(
+    page_title="Defence News Scanner OCR",
+    page_icon="🛡️",
+    layout="wide"
+)
+
+
+# ============================================================
+# SETTINGS
 # ============================================================
 
 OCR_CONFIG = "--oem 3 --psm 3"
 
-MIN_ARTICLE_WORDS = 45
+# Keep this low enough to catch short genuine defence articles.
+MIN_ARTICLE_WORDS = 25
+
 MAX_ARTICLES_PER_PAGE = 20
 
+
 # ============================================================
-# DEFENCE LANGUAGE
+# DEFENCE VOCABULARY
 # ============================================================
 
+# These are phrases that strongly indicate that the article
+# itself is about defence / military affairs.
+
 VERY_STRONG_PHRASES = [
-    "corps commander",
-    "corps commanders",
-    "military commander",
-    "military commanders",
-    "armed forces",
     "indian army",
     "indian navy",
     "indian air force",
-    "air force",
-    "naval forces",
-    "navy ship",
-    "warship",
-    "warships",
-    "fighter aircraft",
-    "fighter jet",
-    "fighter jets",
-    "air defence",
-    "air defense",
-    "missile strike",
-    "missile strikes",
-    "ballistic missile",
-    "ballistic missiles",
-    "cruise missile",
-    "cruise missiles",
-    "drone strike",
-    "drone strikes",
+    "armed forces",
+    "corps commander",
+    "corps commanders",
     "military operation",
     "military operations",
     "military exercise",
     "military exercises",
+    "military deployment",
+    "military deployments",
+    "military talks",
+    "military forces",
+    "military officials",
+    "air defence",
+    "air defense",
+    "missile strike",
+    "missile strikes",
+    "missile attack",
+    "missile attacks",
+    "drone strike",
+    "drone strikes",
+    "drone attack",
+    "drone attacks",
+    "naval exercise",
+    "naval exercises",
     "defence ministry",
     "defense ministry",
     "ministry of defence",
     "ministry of defense",
-    "border troops",
-    "border forces",
     "border security",
-    "line of actual control",
-    "lac",
-    "loc",
-    "line of control",
-    "armed conflict",
-    "military conflict",
-    "military talks",
-    "military dialogue",
-    "defence cooperation",
-    "defense cooperation",
-    "military cooperation",
-    "special forces",
-    "parachute regiment",
-    "army regiment",
-    "naval exercise",
-    "air exercise",
-    "joint exercise",
-    "joint military exercise",
-    "military deployment",
+    "border forces",
+    "border troops",
     "troop deployment",
-    "troops deployed",
-    "military aircraft",
-    "naval vessel",
-    "naval vessels",
-    "air strike",
-    "air strikes",
-    "airstrike",
-    "airstrikes",
+    "troop deployments",
+    "troop movement",
+    "troop movements",
+    "line of actual control",
+    "line of control",
+    "special forces",
+    "fighter aircraft",
+    "fighter jets",
+    "fighter jet",
+    "warship",
+    "warships",
+    "airbase",
+    "air base",
+    "submarine",
+    "submarines",
+    "artillery unit",
+    "artillery units",
+    "military unit",
+    "military units",
+    "military commander",
+    "military commanders",
+    "military personnel",
+    "military drills",
+    "military drill",
+    "army troops",
+    "navy ships",
+    "air force aircraft",
 ]
 
+
+# Supporting defence terms.
 STRONG_TERMS = [
     "army",
     "navy",
@@ -99,254 +116,383 @@ STRONG_TERMS = [
     "drone",
     "drones",
     "troops",
+    "troop",
+    "soldier",
     "soldiers",
     "commander",
     "commanders",
     "brigade",
+    "brigades",
     "battalion",
+    "battalions",
     "regiment",
+    "regiments",
     "artillery",
     "warship",
+    "warships",
     "frigate",
+    "frigates",
     "submarine",
+    "submarines",
     "aircraft",
     "fighter",
+    "fighters",
     "helicopter",
+    "helicopters",
     "airbase",
-    "airbase",
+    "airbases",
     "defence",
     "defense",
-    "military",
     "border",
-    "ceasefire",
     "combat",
-    "combatant",
-    "war",
-    "weapons",
     "weapon",
+    "weapons",
     "ammunition",
-    "forces",
-    "security forces",
     "paramilitary",
     "special forces",
-    "operation",
-    "operations",
     "corps",
-    "lca",
-    "rafale",
-    "sukhoi",
-    "tejas",
-    "ins ",
     "irgc",
+    "air force",
+    "naval",
+    "navy",
+    "military",
+    "security forces",
 ]
 
-COUNTRY_CONTEXT = [
-    "india",
-    "china",
-    "pakistan",
-    "iran",
-    "israel",
-    "russia",
-    "ukraine",
-    "us",
-    "united states",
-    "north korea",
-    "south korea",
-]
+
+# Topics which frequently contain defence-related words
+# but are NOT automatically defence articles.
 
 NON_DEFENCE_TOPICS = [
-    "football",
-    "cricket",
-    "tennis",
-    "cinema",
-    "film",
-    "movie",
-    "music",
+    "newsmakers",
+    "interview",
+    "profile",
+    "politics",
+    "political",
+    "politician",
+    "diplomatic ties",
+    "diplomatic relation",
+    "diplomatic relations",
+    "foreign relations",
+    "bilateral ties",
+    "bilateral relations",
+    "economy",
+    "economic",
+    "business",
+    "education",
+    "visa",
+    "visas",
+    "culture",
+    "cultural",
     "dance",
     "bharatanatyam",
-    "theatre",
-    "restaurant",
-    "food",
-    "fashion",
-    "education",
-    "college admissions",
-    "university",
+    "film",
+    "films",
+    "movie",
+    "movies",
+    "music",
+    "sports",
+    "sport",
     "jobs",
     "employment",
-    "stock market",
-    "share market",
-    "business",
-    "economy",
-    "inflation",
-    "weather",
+    "hospital",
+    "hostel",
+    "rescue",
+    "rescued",
     "volcano",
     "earthquake",
     "flood",
-    "rescue",
-    "hospital",
-    "hostel",
+    "weather",
     "school",
-    "election",
-    "elections",
-    "polling",
-    "political party",
+    "college",
+    "university",
     "actor",
     "actress",
     "singer",
-    "artist",
-    "book",
-    "author",
-    "culture",
-    "cultural",
     "festival",
+    "election",
+    "elections",
 ]
 
 
+SECTION_LABELS = {
+    "newsmakers",
+    "opinion",
+    "business",
+    "world",
+    "sports",
+    "nation",
+    "politics",
+    "explained",
+    "editorial",
+    "lifestyle",
+    "culture",
+    "technology",
+    "education",
+    "cities",
+    "india",
+    "world news",
+    "business news",
+    "sports news",
+    "nation news",
+}
+
+
 # ============================================================
-# TEXT NORMALIZATION
+# BASIC TEXT FUNCTIONS
 # ============================================================
 
 def normalize_text(text):
     if not text:
         return ""
 
-    text = text.replace("\x00", " ")
-    text = text.replace("ﬁ", "fi")
-    text = text.replace("ﬂ", "fl")
-
-    # Fix common OCR spacing problems
-    text = re.sub(r"(?<=\w)[|¦](?=\w)", "l", text)
-
-    text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"\n[ \t]+", "\n", text)
-
-    # Join words broken by line hyphenation
-    text = re.sub(r"(\w)-\n(\w)", r"\1\2", text)
-
-    # Too many blank lines
-    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = text.replace("\u00a0", " ")
+    text = text.replace("\n", " ")
+    text = re.sub(r"\s+", " ", text)
 
     return text.strip()
 
 
 def clean_line(text):
-    text = normalize_text(text)
-    text = re.sub(r"\s+", " ", text)
+    if not text:
+        return ""
+
+    text = text.replace("\u00a0", " ")
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\s+\n", "\n", text)
+
     return text.strip()
 
 
 def word_count(text):
-    return len(re.findall(r"\b[A-Za-z][A-Za-z'-]*\b", text))
+    return len(re.findall(r"\b[\w'-]+\b", text))
+
+
+def count_phrase(text, phrase):
+    return len(
+        re.findall(
+            r"(?<!\w)" + re.escape(phrase) + r"(?!\w)",
+            text
+        )
+    )
 
 
 # ============================================================
-# DEFENCE CLASSIFIER
+# DEFENCE ARTICLE CLASSIFIER
 # ============================================================
 
 def defence_analysis(text):
     """
-    IMPORTANT:
-    Classification is performed on the COMPLETE candidate article,
-    not on individual OCR lines.
+    Strict article-level defence classifier.
+
+    Important:
+    A country name, war word, or one military word alone
+    should NOT make an article defence-related.
     """
 
-    t = normalize_text(text).lower()
+    text_norm = normalize_text(text).lower()
 
-    if word_count(t) < MIN_ARTICLE_WORDS:
+    if not text_norm:
         return False, [], 0
+
+    words = word_count(text_norm)
+
+    if words < MIN_ARTICLE_WORDS:
+        return False, [], 0
+
+    # --------------------------------------------------------
+    # Count very strong phrases
+    # --------------------------------------------------------
+
+    very_strong_hits = []
+
+    for phrase in VERY_STRONG_PHRASES:
+        if phrase in text_norm:
+            very_strong_hits.append(phrase)
+
+    # --------------------------------------------------------
+    # Count supporting defence terms
+    # --------------------------------------------------------
+
+    strong_hits = []
+
+    for term in STRONG_TERMS:
+        if re.search(
+            r"(?<!\w)" + re.escape(term) + r"(?!\w)",
+            text_norm
+        ):
+            strong_hits.append(term)
+
+    # Remove duplicates
+    strong_hits = list(dict.fromkeys(strong_hits))
+    very_strong_hits = list(dict.fromkeys(very_strong_hits))
+
+    # --------------------------------------------------------
+    # Count non-defence context
+    # --------------------------------------------------------
+
+    non_defence_hits = []
+
+    for topic in NON_DEFENCE_TOPICS:
+        if topic in text_norm:
+            non_defence_hits.append(topic)
+
+    non_defence_hits = list(dict.fromkeys(non_defence_hits))
+
+    # --------------------------------------------------------
+    # Defence density
+    # --------------------------------------------------------
+
+    total_defence_hits = len(very_strong_hits) + len(strong_hits)
+
+    density = total_defence_hits / max(words, 1)
+
+    # --------------------------------------------------------
+    # RULE 1
+    # Very weak evidence = reject
+    # --------------------------------------------------------
+
+    if len(very_strong_hits) == 0 and len(strong_hits) < 4:
+        return False, [], 0
+
+    # --------------------------------------------------------
+    # RULE 2
+    # Generic diplomacy / interview / profile articles
+    # should not pass just because they contain LAC/war/etc.
+    # --------------------------------------------------------
+
+    political_context = any(
+        x in text_norm
+        for x in [
+            "diplomatic",
+            "diplomacy",
+            "foreign policy",
+            "foreign relations",
+            "bilateral",
+            "interview",
+            "newsmakers",
+            "political",
+            "politics",
+            "visa",
+            "economy",
+        ]
+    )
+
+    if political_context:
+        if len(very_strong_hits) < 2 and len(strong_hits) < 4:
+            return False, [], 0
+
+        if density < 0.025:
+            return False, [], 0
+
+    # --------------------------------------------------------
+    # RULE 3
+    # Culture / entertainment
+    # --------------------------------------------------------
+
+    culture_context = any(
+        x in text_norm
+        for x in [
+            "dance",
+            "bharatanatyam",
+            "music",
+            "film",
+            "movie",
+            "actor",
+            "actress",
+            "singer",
+            "culture",
+            "cultural",
+        ]
+    )
+
+    if culture_context:
+        if len(very_strong_hits) < 2 and len(strong_hits) < 4:
+            return False, [], 0
+
+        if density < 0.03:
+            return False, [], 0
+
+    # --------------------------------------------------------
+    # RULE 4
+    # Rescue / disaster stories
+    # --------------------------------------------------------
+
+    disaster_context = any(
+        x in text_norm
+        for x in [
+            "rescue",
+            "rescued",
+            "hostel",
+            "hospital",
+            "volcano",
+            "earthquake",
+            "flood",
+            "collapse",
+        ]
+    )
+
+    if disaster_context:
+        if len(very_strong_hits) < 2 and len(strong_hits) < 4:
+            return False, [], 0
+
+        if density < 0.03:
+            return False, [], 0
+
+    # --------------------------------------------------------
+    # RULE 5
+    # Strong acceptance rules
+    # --------------------------------------------------------
+
+    accepted = False
+
+    # Multiple explicit military phrases.
+    if len(very_strong_hits) >= 2:
+        accepted = True
+
+    # One explicit phrase + several military terms.
+    elif len(very_strong_hits) >= 1 and len(strong_hits) >= 4:
+        accepted = True
+
+    # Several military terms with reasonable density.
+    elif len(strong_hits) >= 5 and density >= 0.025:
+        accepted = True
+
+    if not accepted:
+        return False, [], 0
+
+    # --------------------------------------------------------
+    # Signals shown in UI
+    # --------------------------------------------------------
 
     signals = []
 
-    # Very strong phrases
-    for phrase in VERY_STRONG_PHRASES:
-        if phrase in t:
-            signals.append(phrase)
+    signals.extend(very_strong_hits)
+    signals.extend(strong_hits)
 
-    # Strong individual terms
-    strong_found = []
+    signals = list(dict.fromkeys(signals))
 
-    for term in STRONG_TERMS:
-        if term in t:
-            strong_found.append(term)
-
-    strong_found = list(dict.fromkeys(strong_found))
-
-    # Country by itself is NEVER enough
-    country_found = [
-        c for c in COUNTRY_CONTEXT
-        if c in t
-    ]
-
-    # Non-defence topic indicators
-    non_defence = [
-        x for x in NON_DEFENCE_TOPICS
-        if x in t
-    ]
-
-    # --------------------------------------------------------
-    # RULE 1:
-    # Strong defence phrase -> candidate
-    # --------------------------------------------------------
-
-    if signals:
-        score = 5 + min(len(strong_found), 5)
-
-    # --------------------------------------------------------
-    # RULE 2:
-    # Multiple independent military terms
-    # --------------------------------------------------------
-
-    elif len(strong_found) >= 3:
-        score = len(strong_found) + 1
-
-    # --------------------------------------------------------
-    # RULE 3:
-    # Only one military word is NOT enough
-    # --------------------------------------------------------
-
-    else:
-        return False, [], 0
-
-    # Penalise obviously unrelated articles
-    if non_defence:
-        # Cultural article containing "army" etc.
-        if not signals and len(strong_found) <= 4:
-            return False, [], 0
-
-        # If article is overwhelmingly non-defence,
-        # reject unless it contains a very explicit military event.
-        non_defence_count = sum(
-            1 for x in non_defence if x in t
-        )
-
-        if non_defence_count >= 3 and not signals:
-            return False, [], 0
-
-    # Need actual military context
-    if not signals and len(strong_found) < 3:
-        return False, [], 0
-
-    final_signals = list(dict.fromkeys(
-        signals + strong_found[:8]
-    ))
-
-    return True, final_signals, score
+    return True, signals[:10], len(signals)
 
 
 # ============================================================
-# PDF TEXT EXTRACTION
+# PDF NATIVE TEXT EXTRACTION
 # ============================================================
 
 def extract_native_blocks(page):
     """
-    Extract text + coordinates directly from text-based PDFs.
+    Extract text blocks directly from PDF.
 
-    This is much better than rasterising a text PDF and OCRing it.
+    This is much cleaner than OCR when the PDF contains
+    selectable text.
     """
 
-    data = page.get_text("dict")
-
     blocks = []
+
+    try:
+        data = page.get_text("dict")
+    except Exception:
+        return []
 
     for block in data.get("blocks", []):
 
@@ -355,50 +501,71 @@ def extract_native_blocks(page):
 
         bbox = block.get("bbox")
 
-        if not bbox:
+        if not bbox or len(bbox) != 4:
             continue
-
-        x0, y0, x1, y1 = bbox
 
         lines = []
 
+        font_sizes = []
+
         for line in block.get("lines", []):
 
-            line_text = ""
-
-            sizes = []
+            line_parts = []
 
             for span in line.get("spans", []):
+
                 txt = span.get("text", "")
-                line_text += txt
 
-                if span.get("size"):
-                    sizes.append(span.get("size"))
+                if txt.strip():
+                    line_parts.append(txt)
 
-            line_text = clean_line(line_text)
+                size = span.get("size")
 
-            if line_text:
-                lines.append({
-                    "text": line_text,
-                    "size": max(sizes) if sizes else 0,
-                    "bbox": line.get("bbox", bbox)
-                })
+                if size:
+                    font_sizes.append(float(size))
 
-        if lines:
-            blocks.append({
-                "bbox": bbox,
-                "lines": lines,
-                "source": "native"
-            })
+            if line_parts:
+                line_text = clean_line(" ".join(line_parts))
+
+                if line_text:
+                    lines.append(line_text)
+
+        if not lines:
+            continue
+
+        text = "\n".join(lines).strip()
+
+        if not text:
+            continue
+
+        avg_size = (
+            sum(font_sizes) / len(font_sizes)
+            if font_sizes
+            else 10
+        )
+
+        blocks.append({
+            "x0": float(bbox[0]),
+            "y0": float(bbox[1]),
+            "x1": float(bbox[2]),
+            "y1": float(bbox[3]),
+            "width": float(bbox[2] - bbox[0]),
+            "height": float(bbox[3] - bbox[1]),
+            "text": text,
+            "avg_size": avg_size,
+            "source": "native",
+        })
 
     return blocks
 
 
 # ============================================================
-# IMAGE OCR
+# IMAGE RENDERING
 # ============================================================
 
-def render_page(page, zoom=2.5):
+def render_page(page, dpi=220):
+
+    zoom = dpi / 72.0
 
     matrix = fitz.Matrix(zoom, zoom)
 
@@ -409,34 +576,49 @@ def render_page(page, zoom=2.5):
 
     image = Image.open(
         io.BytesIO(pix.tobytes("png"))
-    ).convert("RGB")
+    )
 
     return image
 
+
+# ============================================================
+# OCR PREPROCESSING
+# ============================================================
 
 def preprocess_image(image):
 
     gray = ImageOps.grayscale(image)
 
-    # Improve contrast
-    gray = ImageEnhance.Contrast(gray).enhance(1.5)
+    # Slight contrast improvement
+    gray = ImageOps.autocontrast(gray)
 
-    # Slight sharpening
-    gray = gray.filter(ImageFilter.SHARPEN)
+    # Light sharpening
+    gray = gray.filter(
+        ImageFilter.SHARPEN
+    )
 
     return gray
 
+
+# ============================================================
+# OCR BLOCK EXTRACTION
+# ============================================================
 
 def ocr_blocks(image):
 
     processed = preprocess_image(image)
 
-    data = pytesseract.image_to_data(
-        processed,
-        config=OCR_CONFIG,
-        lang="eng",
-        output_type=pytesseract.Output.DICT
-    )
+    try:
+        data = pytesseract.image_to_data(
+            processed,
+            config=OCR_CONFIG,
+            output_type=pytesseract.Output.DICT
+        )
+    except Exception as e:
+        st.error(
+            f"OCR error: {e}"
+        )
+        return []
 
     grouped = defaultdict(list)
 
@@ -444,82 +626,134 @@ def ocr_blocks(image):
 
     for i in range(n):
 
-        text = data["text"][i].strip()
+        txt = data["text"][i].strip()
 
-        if not text:
+        if not txt:
             continue
 
         try:
             conf = float(data["conf"][i])
-        except:
+        except Exception:
             conf = 0
 
-        if conf < 15:
+        if conf < 20:
             continue
 
-        key = (
-            data["block_num"][i],
-            data["par_num"][i],
-            data["line_num"][i]
-        )
+        block_num = data["block_num"][i]
 
-        grouped[key].append({
-            "text": text,
-            "left": data["left"][i],
-            "top": data["top"][i],
-            "width": data["width"][i],
-            "height": data["height"][i],
-            "conf": conf
+        grouped[block_num].append({
+            "text": txt,
+            "left": int(data["left"][i]),
+            "top": int(data["top"][i]),
+            "width": int(data["width"][i]),
+            "height": int(data["height"][i]),
+            "conf": conf,
         })
 
     blocks = []
 
-    for key, words in grouped.items():
+    for _, words in grouped.items():
 
         if not words:
             continue
 
-        words.sort(key=lambda x: x["left"])
-
-        text = " ".join(
-            x["text"] for x in words
+        words = sorted(
+            words,
+            key=lambda x: (
+                x["top"],
+                x["left"]
+            )
         )
 
-        left = min(x["left"] for x in words)
-        top = min(x["top"] for x in words)
+        # Group words approximately by line.
+        lines = []
 
-        right = max(
+        for word in words:
+
+            placed = False
+
+            for line in lines:
+
+                if abs(
+                    word["top"] - line["top"]
+                ) <= max(
+                    12,
+                    word["height"] * 0.7
+                ):
+                    line["words"].append(word)
+                    placed = True
+                    break
+
+            if not placed:
+
+                lines.append({
+                    "top": word["top"],
+                    "words": [word]
+                })
+
+        text_lines = []
+
+        for line in lines:
+
+            line_words = sorted(
+                line["words"],
+                key=lambda x: x["left"]
+            )
+
+            line_text = " ".join(
+                x["text"]
+                for x in line_words
+            )
+
+            if line_text.strip():
+                text_lines.append(
+                    line_text.strip()
+                )
+
+        if not text_lines:
+            continue
+
+        x0 = min(
+            x["left"]
+            for x in words
+        )
+
+        y0 = min(
+            x["top"]
+            for x in words
+        )
+
+        x1 = max(
             x["left"] + x["width"]
             for x in words
         )
 
-        bottom = max(
+        y1 = max(
             x["top"] + x["height"]
             for x in words
         )
 
         avg_height = sum(
-            x["height"] for x in words
+            x["height"]
+            for x in words
+        ) / len(words)
+
+        avg_conf = sum(
+            x["conf"]
+            for x in words
         ) / len(words)
 
         blocks.append({
-            "bbox": (
-                left,
-                top,
-                right,
-                bottom
-            ),
-            "lines": [{
-                "text": clean_line(text),
-                "size": avg_height,
-                "bbox": (
-                    left,
-                    top,
-                    right,
-                    bottom
-                )
-            }],
-            "source": "ocr"
+            "x0": x0,
+            "y0": y0,
+            "x1": x1,
+            "y1": y1,
+            "width": x1 - x0,
+            "height": y1 - y0,
+            "text": "\n".join(text_lines),
+            "avg_size": avg_height,
+            "confidence": avg_conf,
+            "source": "ocr",
         })
 
     return blocks
@@ -529,123 +763,116 @@ def ocr_blocks(image):
 # COLUMN DETECTION
 # ============================================================
 
-def detect_columns(blocks, page_width):
+def detect_columns(blocks):
 
     if not blocks:
-        return [(0, page_width)]
+        return []
 
-    # Ignore very wide blocks because they may be:
-    # page title / newspaper masthead / full-width headline.
-    normal_blocks = []
-
-    for b in blocks:
-
-        x0, y0, x1, y1 = b["bbox"]
-
-        width = x1 - x0
-
-        if width < page_width * 0.75:
-            normal_blocks.append(b)
-
-    if len(normal_blocks) < 3:
-        return [(0, page_width)]
-
-    # Collect left edges
-    xs = sorted(
-        b["bbox"][0]
-        for b in normal_blocks
+    # Sort from left to right.
+    sorted_blocks = sorted(
+        blocks,
+        key=lambda b: b["x0"]
     )
 
-    # Cluster x positions
-    clusters = []
+    page_width = max(
+        b["x1"]
+        for b in blocks
+    )
 
-    tolerance = page_width * 0.035
+    # Approximate newspaper column width.
+    typical_width = sorted(
+        b["width"]
+        for b in blocks
+    )
 
-    for x in xs:
+    if typical_width:
+        median_width = typical_width[
+            len(typical_width) // 2
+        ]
+    else:
+        median_width = page_width / 4
+
+    # Maximum expected number of columns.
+    max_columns = 5
+
+    # Dynamic x-gap used to split columns.
+    gap_threshold = max(
+        35,
+        median_width * 0.20
+    )
+
+    columns = []
+
+    for block in sorted_blocks:
 
         placed = False
 
-        for cluster in clusters:
+        center = (
+            block["x0"] +
+            block["x1"]
+        ) / 2
 
-            if abs(
-                x - sum(cluster) / len(cluster)
-            ) <= tolerance:
+        for column in columns:
 
-                cluster.append(x)
+            c_left = column["left"]
+            c_right = column["right"]
+
+            # If block center is reasonably close to this
+            # column's center, keep it there.
+            c_center = (
+                c_left +
+                c_right
+            ) / 2
+
+            if abs(center - c_center) <= (
+                max(
+                    median_width * 0.45,
+                    50
+                )
+            ):
+
+                column["blocks"].append(
+                    block
+                )
+
+                column["left"] = min(
+                    column["left"],
+                    block["x0"]
+                )
+
+                column["right"] = max(
+                    column["right"],
+                    block["x1"]
+                )
+
                 placed = True
                 break
 
         if not placed:
-            clusters.append([x])
 
-    clusters = [
-        c for c in clusters
-        if len(c) >= 2
-    ]
+            if len(columns) < max_columns:
 
-    if len(clusters) < 2:
-        return [(0, page_width)]
+                columns.append({
+                    "left": block["x0"],
+                    "right": block["x1"],
+                    "blocks": [block]
+                })
 
-    centers = sorted(
-        sum(c) / len(c)
-        for c in clusters
+    # Sort columns left to right.
+    columns.sort(
+        key=lambda c: c["left"]
     )
 
-    # Maximum 5 newspaper columns
-    centers = centers[:5]
-
-    boundaries = [0]
-
-    for i in range(len(centers) - 1):
-
-        mid = (
-            centers[i] + centers[i + 1]
-        ) / 2
-
-        boundaries.append(mid)
-
-    boundaries.append(page_width)
-
-    columns = []
-
-    for i in range(len(boundaries) - 1):
-
-        x0 = boundaries[i]
-        x1 = boundaries[i + 1]
-
-        if x1 - x0 > page_width * 0.08:
-            columns.append((x0, x1))
+    # Sort blocks top-to-bottom.
+    for column in columns:
+        column["blocks"].sort(
+            key=lambda b: (
+                b["y0"],
+                b["x0"]
+            )
+        )
 
     return columns
-
-
-# ============================================================
-# ASSIGN BLOCKS TO COLUMNS
-# ============================================================
-
-def blocks_in_column(blocks, column):
-
-    cx0, cx1 = column
-
-    selected = []
-
-    for b in blocks:
-
-        x0, y0, x1, y1 = b["bbox"]
-
-        center = (x0 + x1) / 2
-
-        if cx0 <= center <= cx1:
-            selected.append(b)
-
-    selected.sort(
-        key=lambda b: (
-            b["bbox"][1],
-            b["bbox"][0]
-        )
-    )
-
-    return selected
 
 
 # ============================================================
@@ -655,43 +882,58 @@ def blocks_in_column(blocks, column):
 def looks_like_headline(block):
 
     text = clean_line(
-        " ".join(
-            x["text"]
-            for x in block["lines"]
-        )
+        block.get("text", "")
     )
 
     if not text:
         return False
 
-    wc = word_count(text)
+    lower = text.lower()
 
-    if wc > 35:
+    # Remove punctuation when checking section labels.
+    label = re.sub(
+        r"[^a-z0-9 ]",
+        "",
+        lower
+    ).strip()
+
+    # Section labels must NOT become article headlines.
+    if label in SECTION_LABELS:
         return False
 
-    # Native PDF font size
-    sizes = [
-        x.get("size", 0)
-        for x in block["lines"]
-    ]
+    words = text.split()
 
-    avg_size = (
-        sum(sizes) / len(sizes)
-        if sizes else 0
+    if len(words) > 18:
+        return False
+
+    avg_size = float(
+        block.get("avg_size", 10)
     )
 
-    if block["source"] == "native":
+    source = block.get(
+        "source",
+        "native"
+    )
 
-        if avg_size >= 15:
+    # Native PDF
+    if source == "native":
+
+        if avg_size >= 17:
             return True
 
+        if avg_size >= 14 and len(words) <= 12:
+            return True
+
+    # OCR
     else:
 
-        # OCR text height
-        if avg_size >= 18 and wc <= 20:
+        if avg_size >= 24:
             return True
 
-    # ALL CAPS headline
+        if avg_size >= 19 and len(words) <= 12:
+            return True
+
+    # All caps headline.
     letters = re.sub(
         r"[^A-Za-z]",
         "",
@@ -699,15 +941,11 @@ def looks_like_headline(block):
     )
 
     if (
-        len(letters) > 8
-        and letters.upper() == letters
+        len(letters) >= 14
+        and len(words) >= 3
+        and letters.isupper()
     ):
         return True
-
-    # Common newspaper headline shape
-    if wc <= 14 and len(text) <= 110:
-        if not text.endswith("."):
-            return True
 
     return False
 
@@ -718,81 +956,136 @@ def looks_like_headline(block):
 
 def block_text(block):
 
-    return clean_line(
-        " ".join(
-            x["text"]
-            for x in block["lines"]
+    text = block.get(
+        "text",
+        ""
+    )
+
+    text = clean_line(text)
+
+    return text
+
+
+# ============================================================
+# ARTICLE CANDIDATE BUILDER
+# ============================================================
+
+def build_article_candidates(blocks):
+
+    if not blocks:
+        return []
+
+    blocks = sorted(
+        blocks,
+        key=lambda b: (
+            b["y0"],
+            b["x0"]
         )
     )
 
+    candidates = []
 
-# ============================================================
-# ARTICLE GROUPING
-# ============================================================
-
-def build_article_candidates(column_blocks):
-
-    if not column_blocks:
-        return []
-
-    articles = []
     current = []
 
-    previous_bottom = None
+    previous = None
 
-    for index, block in enumerate(column_blocks):
+    for block in blocks:
 
         text = block_text(block)
 
         if not text:
             continue
 
-        x0, y0, x1, y1 = block["bbox"]
+        is_headline = looks_like_headline(
+            block
+        )
 
-        is_headline = looks_like_headline(block)
+        # ----------------------------------------------------
+        # First block
+        # ----------------------------------------------------
 
-        if previous_bottom is None:
-            current.append(block)
+        if not current:
+
+            current = [block]
+            previous = block
+            continue
+
+        previous_height = max(
+            previous.get(
+                "height",
+                10
+            ),
+            10
+        )
+
+        vertical_gap = (
+            block["y0"] -
+            previous["y1"]
+        )
+
+        # ----------------------------------------------------
+        # Strong article boundary:
+        # new large headline after existing article.
+        # ----------------------------------------------------
+
+        new_article_headline = (
+            is_headline
+            and len(current) >= 2
+            and block.get(
+                "height",
+                10
+            ) >= previous_height * 1.25
+        )
+
+        # ----------------------------------------------------
+        # Large whitespace gap.
+        # ----------------------------------------------------
+
+        definite_gap = (
+            vertical_gap >
+            max(
+                45,
+                previous_height * 3
+            )
+        )
+
+        large_gap = (
+            vertical_gap >
+            max(
+                18,
+                previous_height * 1.8
+            )
+            and len(current) >= 3
+        )
+
+        if new_article_headline or definite_gap:
+
+            candidates.append(
+                current
+            )
+
+            current = [block]
+
+        elif large_gap and is_headline:
+
+            candidates.append(
+                current
+            )
+
+            current = [block]
 
         else:
 
-            gap = y0 - previous_bottom
+            current.append(block)
 
-            # Large vertical gap strongly suggests
-            # separate newspaper content.
-            large_gap = gap > max(
-                35,
-                (y1 - y0) * 1.8
-            )
-
-            # Headline after an existing article
-            # normally starts a new article.
-            new_headline = (
-                is_headline
-                and len(current) > 1
-            )
-
-            # Very large gap = definite boundary
-            if large_gap and len(current) > 0:
-                articles.append(current)
-                current = [block]
-
-            elif new_headline:
-                articles.append(current)
-                current = [block]
-
-            else:
-                current.append(block)
-
-        previous_bottom = max(
-            previous_bottom or 0,
-            y1
-        )
+        previous = block
 
     if current:
-        articles.append(current)
+        candidates.append(
+            current
+        )
 
-    return articles
+    return candidates
 
 
 # ============================================================
@@ -804,87 +1097,77 @@ def reconstruct_article(blocks):
     if not blocks:
         return ""
 
-    # Sort by vertical position.
     blocks = sorted(
         blocks,
         key=lambda b: (
-            b["bbox"][1],
-            b["bbox"][0]
+            b["y0"],
+            b["x0"]
         )
     )
 
-    lines = []
+    parts = []
 
     for block in blocks:
 
         text = block_text(block)
 
-        if text:
-            lines.append(text)
-
-    # Remove accidental duplicate lines
-    result = []
-
-    seen = set()
-
-    for line in lines:
-
-        key = re.sub(
-            r"[^a-z0-9]",
-            "",
-            line.lower()
-        )
-
-        if len(key) < 5:
+        if not text:
             continue
 
-        if key in seen:
-            continue
+        # Preserve paragraph-like breaks.
+        if parts:
+            parts.append("")
 
-        seen.add(key)
-        result.append(line)
+        parts.append(text)
 
-    return "\n".join(result).strip()
+    text = "\n".join(parts)
+
+    return clean_article(text)
 
 
 # ============================================================
-# ARTICLE CLEANUP
+# ARTICLE CLEANING
 # ============================================================
 
 def clean_article(text):
 
-    text = normalize_text(text)
+    if not text:
+        return ""
 
-    lines = []
+    lines = [
+        clean_line(x)
+        for x in text.splitlines()
+    ]
 
-    for line in text.splitlines():
+    lines = [
+        x for x in lines
+        if x
+    ]
 
-        line = clean_line(line)
+    # Remove obvious repeated OCR garbage.
+    cleaned = []
 
-        if not line:
-            continue
-
-        # Remove common newspaper continuation markers
-        if re.fullmatch(
-            r"(continued on page \d+|page \d+)",
-            line.lower()
-        ):
-            continue
-
-        lines.append(line)
-
-    # Remove repeated consecutive lines
-    final = []
+    previous = ""
 
     for line in lines:
 
-        if final:
-            if line.lower() == final[-1].lower():
-                continue
+        if line.lower() == previous.lower():
+            continue
 
-        final.append(line)
+        # Skip tiny page-number-only lines.
+        if re.fullmatch(
+            r"[\d\W]{1,5}",
+            line
+        ):
+            continue
 
-    return "\n".join(final)
+        cleaned.append(line)
+
+        previous = line
+
+    return "\n".join(
+        cleaned
+    ).strip()
 
 
 # ============================================================
@@ -893,69 +1176,103 @@ def clean_article(text):
 
 def article_quality(text):
 
-    wc = word_count(text)
+    if not text:
+        return 0
 
-    if wc < MIN_ARTICLE_WORDS:
-        return False
+    words = word_count(text)
 
-    # OCR junk ratio
-    chars = len(text)
+    if words < MIN_ARTICLE_WORDS:
+        return 0
 
-    if chars < 100:
-        return False
+    score = 0
 
-    alpha = sum(
-        c.isalpha()
-        for c in text
+    # Reasonable article length.
+    if words >= 40:
+        score += 2
+
+    if words >= 80:
+        score += 2
+
+    if words >= 150:
+        score += 1
+
+    # Sentence structure.
+    sentences = re.split(
+        r"[.!?]+",
+        text
     )
 
-    if alpha / max(chars, 1) < 0.55:
-        return False
+    real_sentences = [
+        s for s in sentences
+        if word_count(s) >= 5
+    ]
 
-    # If almost every line is tiny, likely OCR fragments
-    lines = [
-        x.strip()
+    if len(real_sentences) >= 2:
+        score += 2
+
+    if len(real_sentences) >= 4:
+        score += 1
+
+    # Avoid huge single-line garbage.
+    line_lengths = [
+        len(x)
         for x in text.splitlines()
         if x.strip()
     ]
 
-    if len(lines) >= 8:
+    if line_lengths:
 
-        short_lines = sum(
-            1 for x in lines
-            if word_count(x) <= 2
+        avg_line = (
+            sum(line_lengths) /
+            len(line_lengths)
         )
 
-        if short_lines / len(lines) > 0.55:
-            return False
+        if avg_line < 500:
+            score += 1
 
-    return True
+    return score
 
 
 # ============================================================
-# DEDUPLICATION
+# FINGERPRINT
 # ============================================================
 
 def fingerprint(text):
 
+    normalized = normalize_text(
+        text
+    ).lower()
+
+    # Remove punctuation.
     normalized = re.sub(
-        r"[^a-z0-9]",
-        "",
-        text.lower()
+        r"[^a-z0-9 ]",
+        " ",
+        normalized
     )
 
+    normalized = re.sub(
+        r"\s+",
+        " ",
+        normalized
+    ).strip()
+
     return hashlib.md5(
-        normalized[:5000].encode(
+        normalized.encode(
             "utf-8",
             errors="ignore"
         )
     ).hexdigest()
 
 
+# ============================================================
+# DUPLICATE REMOVAL
+# ============================================================
+
 def remove_duplicates(articles):
 
-    result = []
-    seen = set()
+    unique = []
+
+    fingerprints = set()
 
     for article in articles:
 
@@ -963,123 +1280,158 @@ def remove_duplicates(articles):
             article["text"]
         )
 
-        if fp in seen:
+        if fp in fingerprints:
             continue
 
-        seen.add(fp)
-        result.append(article)
+        # Basic containment check.
+        duplicate = False
 
-    return result
+        current_words = set(
+            normalize_text(
+                article["text"]
+            ).lower().split()
+        )
+
+        if len(current_words) > 20:
+
+            for existing in unique:
+
+                existing_words = set(
+                    normalize_text(
+                        existing["text"]
+                    ).lower().split()
+                )
+
+                if not existing_words:
+                    continue
+
+                intersection = (
+                    len(
+                        current_words &
+                        existing_words
+                    )
+                )
+
+                smaller = min(
+                    len(current_words),
+                    len(existing_words)
+                )
+
+                if (
+                    smaller > 20
+                    and
+                    intersection /
+                    smaller
+                    > 0.88
+                ):
+                    duplicate = True
+                    break
+
+        if duplicate:
+            continue
+
+        fingerprints.add(fp)
+        unique.append(article)
+
+    return unique
 
 
 # ============================================================
 # PAGE PROCESSING
 # ============================================================
 
-def process_page(page, page_number):
+def process_page(
+    page,
+    page_number
+):
 
-    page_rect = page.rect
-
-    page_width = page_rect.width
-    page_height = page_rect.height
-
-    # --------------------------------------------------------
-    # FIRST: native PDF text
-    # --------------------------------------------------------
-
-    native_blocks = extract_native_blocks(page)
-
-    native_words = sum(
-        word_count(block_text(b))
-        for b in native_blocks
+    native_blocks = extract_native_blocks(
+        page
     )
 
-    # If PDF has useful text, use it.
-    # Otherwise OCR the page.
+    # Native PDF is preferred if it contains
+    # enough readable text.
+    native_words = word_count(
+        " ".join(
+            b["text"]
+            for b in native_blocks
+        )
+    )
+
     if native_words >= 40:
 
         blocks = native_blocks
-        extraction_method = "Native PDF"
+        source = "Native PDF"
 
     else:
 
-        image = render_page(page)
+        image = render_page(
+            page,
+            dpi=220
+        )
 
-        blocks = ocr_blocks(image)
-        extraction_method = "OCR"
+        blocks = ocr_blocks(
+            image
+        )
 
-        # Scale coordinates back approximately
-        # to PDF page coordinates
-        scale_x = page_width / image.width
-        scale_y = page_height / image.height
-
-        for b in blocks:
-
-            x0, y0, x1, y1 = b["bbox"]
-
-            b["bbox"] = (
-                x0 * scale_x,
-                y0 * scale_y,
-                x1 * scale_x,
-                y1 * scale_y
-            )
-
-            for line in b["lines"]:
-
-                lx0, ly0, lx1, ly1 = line["bbox"]
-
-                line["bbox"] = (
-                    lx0 * scale_x,
-                    ly0 * scale_y,
-                    lx1 * scale_x,
-                    ly1 * scale_y
-                )
+        source = "OCR"
 
     if not blocks:
-        return [], extraction_method
-
-    # --------------------------------------------------------
-    # DETECT COLUMNS
-    # --------------------------------------------------------
+        return [], source
 
     columns = detect_columns(
-        blocks,
-        page_width
+        blocks
     )
 
     page_articles = []
 
     # --------------------------------------------------------
-    # PROCESS EACH COLUMN SEPARATELY
+    # Process each newspaper column separately.
     # --------------------------------------------------------
 
-    for column_number, column in enumerate(columns, start=1):
+    for column_index, column in enumerate(
+        columns,
+        start=1
+    ):
 
-        col_blocks = blocks_in_column(
-            blocks,
-            column
+        column_blocks = column[
+            "blocks"
+        ]
+
+        candidates = build_article_candidates(
+            column_blocks
         )
 
-        if not col_blocks:
-            continue
-
-        candidate_groups = build_article_candidates(
-            col_blocks
-        )
-
-        for candidate in candidate_groups:
+        for candidate_index, candidate in enumerate(
+            candidates,
+            start=1
+        ):
 
             text = reconstruct_article(
                 candidate
             )
 
-            text = clean_article(text)
-
-            if not article_quality(text):
+            if not text:
                 continue
 
-            is_defence, signals, score = defence_analysis(
+            words = word_count(
                 text
+            )
+
+            if words < MIN_ARTICLE_WORDS:
+                continue
+
+            quality = article_quality(
+                text
+            )
+
+            if quality < 2:
+                continue
+
+            is_defence, signals, signal_count = (
+                defence_analysis(
+                    text
+                )
             )
 
             if not is_defence:
@@ -1087,25 +1439,29 @@ def process_page(page, page_number):
 
             page_articles.append({
                 "page": page_number,
-                "column": column_number,
+                "column": column_index,
+                "candidate": candidate_index,
+                "source": source,
                 "text": text,
                 "signals": signals,
-                "score": score,
-                "method": extraction_method,
+                "quality": quality,
+                "words": words,
             })
 
-    return page_articles, extraction_method
+    return page_articles, source
 
 
 # ============================================================
-# MAIN PDF SCANNER
+# SCAN COMPLETE PDF
 # ============================================================
 
-def scan_pdf(uploaded_file, page_numbers, progress_bar=None):
+def scan_pdf(
+    pdf_bytes,
+    selected_pages,
+    progress_callback=None
+):
 
-    pdf_bytes = uploaded_file.getvalue()
-
-    doc = fitz.open(
+    document = fitz.open(
         stream=pdf_bytes,
         filetype="pdf"
     )
@@ -1115,43 +1471,45 @@ def scan_pdf(uploaded_file, page_numbers, progress_bar=None):
     native_count = 0
     ocr_count = 0
 
-    total = len(page_numbers)
+    total = len(
+        selected_pages
+    )
 
-    for position, page_number in enumerate(page_numbers):
+    for index, page_number in enumerate(
+        selected_pages
+    ):
 
-        page = doc[page_number]
+        page = document[
+            page_number - 1
+        ]
 
-        articles, method = process_page(
+        articles, source = process_page(
             page,
-            page_number + 1
+            page_number
         )
 
-        all_articles.extend(articles)
+        all_articles.extend(
+            articles
+        )
 
-        if method == "Native PDF":
+        if source == "Native PDF":
             native_count += 1
         else:
             ocr_count += 1
 
-        if progress_bar:
-
-            progress_bar.progress(
-                int(
-                    ((position + 1) / total) * 100
-                )
+        if progress_callback:
+            progress_callback(
+                (index + 1) / total
             )
 
-    doc.close()
+    document.close()
 
-    # --------------------------------------------------------
-    # GLOBAL DEDUPLICATION
-    # --------------------------------------------------------
-
+    # Remove duplicates.
     all_articles = remove_duplicates(
         all_articles
     )
 
-    # Highest confidence first
+    # Sort by page then column.
     all_articles.sort(
         key=lambda x: (
             x["page"],
@@ -1167,32 +1525,149 @@ def scan_pdf(uploaded_file, page_numbers, progress_bar=None):
 
 
 # ============================================================
+# TEXT EXPORT
+# ============================================================
+
+def make_download_text(
+    articles
+):
+
+    output = []
+
+    output.append(
+        "DEFENCE NEWS SCANNER OCR"
+    )
+
+    output.append(
+        "=" * 70
+    )
+
+    output.append("")
+
+    output.append(
+        f"Defence articles found: {len(articles)}"
+    )
+
+    output.append("")
+
+    for i, article in enumerate(
+        articles,
+        start=1
+    ):
+
+        output.append(
+            f"NEWS {i}"
+        )
+
+        output.append(
+            "-" * 70
+        )
+
+        output.append(
+            f"Page: {article['page']}"
+        )
+
+        output.append(
+            f"Column: {article['column']}"
+        )
+
+        output.append(
+            f"Source: {article['source']}"
+        )
+
+        output.append(
+            f"Signals: {', '.join(article['signals'])}"
+        )
+
+        output.append("")
+
+        output.append(
+            article["text"]
+        )
+
+        output.append("")
+        output.append(
+            "=" * 70
+        )
+        output.append("")
+
+    return "\n".join(
+        output
+    )
+
+
+# ============================================================
 # STREAMLIT UI
 # ============================================================
 
-st.set_page_config(
-    page_title="Defence News Scanner OCR",
-    page_icon="🛡️",
-    layout="wide"
+st.title(
+    "🛡️ Defence News Scanner OCR"
 )
-
-st.title("🛡️ Defence News Scanner OCR")
 
 st.caption(
-    "Layout-aware newspaper OCR for complete defence-related news articles"
+    "Upload a newspaper PDF and extract complete defence-related articles."
 )
 
+st.markdown(
+    """
+### How it works
+
+**PDF → Page detection → Column detection → Article separation → OCR/Text extraction → Defence filtering**
+
+The scanner is designed to reject stories that only mention words such as
+"army", "war", "operation", or "border" while actually being about unrelated
+subjects.
+"""
+)
+
+
+# ============================================================
+# SIDEBAR
+# ============================================================
+
+with st.sidebar:
+
+    st.header(
+        "⚙️ Scanner Settings"
+    )
+
+    scan_mode = st.radio(
+        "Pages to scan",
+        [
+            "First 3 pages TEST",
+            "All pages",
+            "Select pages"
+        ]
+    )
+
+    st.markdown(
+        "---"
+    )
+
+    st.info(
+        "Native PDF text is used when available. "
+        "OCR is used automatically for scanned/image pages."
+    )
+
+
+# ============================================================
+# FILE UPLOAD
+# ============================================================
+
 uploaded_file = st.file_uploader(
-    "Upload Newspaper PDF",
+    "📄 Upload newspaper PDF",
     type=["pdf"]
 )
 
+
 if uploaded_file:
+
+    pdf_bytes = uploaded_file.getvalue()
 
     try:
 
         doc = fitz.open(
-            stream=uploaded_file.getvalue(),
+            stream=pdf_bytes,
             filetype="pdf"
         )
 
@@ -1200,182 +1675,273 @@ if uploaded_file:
 
         doc.close()
 
-        st.info(
-            f"📄 {uploaded_file.name} | "
-            f"{total_pages} pages"
+    except Exception as e:
+
+        st.error(
+            f"Could not open PDF: {e}"
         )
 
-        st.subheader("Select scan range")
+        st.stop()
 
-        scan_mode = st.radio(
-            "Pages to scan",
-            [
-                "First 3 pages - TEST",
-                "All pages",
-                "Select pages"
-            ],
-            horizontal=True
+    st.success(
+        f"Uploaded: {uploaded_file.name}"
+    )
+
+    st.write(
+        f"📄 Pages in PDF: **{total_pages}**"
+    )
+
+    # --------------------------------------------------------
+    # Page selection
+    # --------------------------------------------------------
+
+    if scan_mode == "First 3 pages TEST":
+
+        selected_pages = list(
+            range(
+                1,
+                min(
+                    3,
+                    total_pages
+                ) + 1
+            )
         )
 
-        if scan_mode == "First 3 pages - TEST":
+    elif scan_mode == "All pages":
 
-            page_numbers = list(
+        selected_pages = list(
+            range(
+                1,
+                total_pages + 1
+            )
+        )
+
+    else:
+
+        selected_pages = st.multiselect(
+            "Select pages",
+            options=list(
                 range(
-                    min(3, total_pages)
+                    1,
+                    total_pages + 1
+                )
+            ),
+            default=list(
+                range(
+                    1,
+                    min(
+                        3,
+                        total_pages
+                    ) + 1
                 )
             )
-
-        elif scan_mode == "All pages":
-
-            page_numbers = list(
-                range(total_pages)
-            )
-
-        else:
-
-            selected = st.multiselect(
-                "Select pages",
-                options=list(
-                    range(
-                        1,
-                        total_pages + 1
-                    )
-                ),
-                default=[1]
-            )
-
-            page_numbers = [
-                p - 1
-                for p in selected
-            ]
-
-        st.write(
-            f"**Pages selected:** {len(page_numbers)}"
         )
 
-        if st.button(
-            "🔎 Scan Newspaper",
-            type="primary",
-            disabled=len(page_numbers) == 0
-        ):
+    st.write(
+        f"**Pages selected:** {len(selected_pages)}"
+    )
 
-            progress = st.progress(0)
+    # --------------------------------------------------------
+    # Scan button
+    # --------------------------------------------------------
 
-            with st.spinner(
-                "Analysing newspaper layout and extracting complete articles..."
-            ):
+    scan_button = st.button(
+        "🔍 Scan Newspaper",
+        type="primary",
+        use_container_width=True
+    )
 
-                articles, native_count, ocr_count = scan_pdf(
-                    uploaded_file,
-                    page_numbers,
-                    progress
+    if scan_button:
+
+        if not selected_pages:
+
+            st.warning(
+                "Please select at least one page."
+            )
+
+            st.stop()
+
+        progress_bar = st.progress(
+            0
+        )
+
+        status_text = st.empty()
+
+        status_text.info(
+            "Starting newspaper scan..."
+        )
+
+        def update_progress(value):
+
+            progress_bar.progress(
+                min(
+                    max(
+                        value,
+                        0
+                    ),
+                    1
                 )
-
-            progress.progress(100)
-
-            st.success(
-                f"Scan completed — "
-                f"{len(articles)} defence article(s) found."
             )
 
-            c1, c2, c3 = st.columns(3)
+            status_text.info(
+                f"Scanning newspaper... "
+                f"{int(value * 100)}%"
+            )
 
-            c1.metric(
+        try:
+
+            (
+                articles,
+                native_count,
+                ocr_count
+            ) = scan_pdf(
+                pdf_bytes,
+                selected_pages,
+                progress_callback=update_progress
+            )
+
+        except Exception as e:
+
+            progress_bar.empty()
+
+            status_text.empty()
+
+            st.error(
+                f"Scan failed: {e}"
+            )
+
+            st.stop()
+
+        progress_bar.progress(
+            1.0
+        )
+
+        status_text.success(
+            "Newspaper scan completed!"
+        )
+
+        # ----------------------------------------------------
+        # Metrics
+        # ----------------------------------------------------
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+            st.metric(
                 "Pages scanned",
-                len(page_numbers)
+                len(selected_pages)
             )
 
-            c2.metric(
+        with col2:
+            st.metric(
                 "Native PDF",
                 native_count
             )
 
-            c3.metric(
+        with col3:
+            st.metric(
                 "OCR",
                 ocr_count
             )
 
-            st.divider()
+        with col4:
+            st.metric(
+                "Defence articles",
+                len(articles)
+            )
 
-            st.subheader("📰 Defence News Found")
-
-            if not articles:
-
-                st.warning(
-                    "No complete defence-related article "
-                    "passed the strict relevance filter."
-                )
-
-            else:
-
-                for i, article in enumerate(
-                    articles,
-                    start=1
-                ):
-
-                    with st.container(
-                        border=True
-                    ):
-
-                        st.markdown(
-                            f"### News {i}"
-                        )
-
-                        st.caption(
-                            f"📄 Page {article['page']} • "
-                            f"Column {article['column']} • "
-                            f"{article['method']}"
-                        )
-
-                        st.write(
-                            "🔎 **Defence signals:** "
-                            + ", ".join(
-                                article["signals"]
-                            )
-                        )
-
-                        st.markdown(
-                            article["text"]
-                        )
-
-            # ------------------------------------------------
-            # DOWNLOAD
-            # ------------------------------------------------
-
-            if articles:
-
-                output_parts = []
-
-                for i, article in enumerate(
-                    articles,
-                    start=1
-                ):
-
-                    output_parts.append(
-                        f"NEWS {i}\n"
-                        f"Page: {article['page']}\n"
-                        f"Column: {article['column']}\n"
-                        f"Signals: "
-                        f"{', '.join(article['signals'])}\n\n"
-                        f"{article['text']}\n"
-                        f"\n{'=' * 80}\n"
-                    )
-
-                output_text = "\n".join(
-                    output_parts
-                )
-
-                st.download_button(
-                    "⬇️ Download Extracted Defence News",
-                    data=output_text,
-                    file_name="defence_news_extracted.txt",
-                    mime="text/plain"
-                )
-
-    except Exception as e:
-
-        st.error(
-            "Scanner error:"
+        st.markdown(
+            "---"
         )
 
-        st.exception(e)
+        # ----------------------------------------------------
+        # Results
+        # ----------------------------------------------------
+
+        if not articles:
+
+            st.warning(
+                "No genuine defence-related articles were detected in the selected pages."
+            )
+
+            st.info(
+                "Try scanning more pages or check whether the newspaper PDF "
+                "contains selectable text / readable scans."
+            )
+
+        else:
+
+            st.success(
+                f"Found {len(articles)} defence-related article(s)."
+            )
+
+            for index, article in enumerate(
+                articles,
+                start=1
+            ):
+
+                signals = ", ".join(
+                    article["signals"]
+                )
+
+                title_text = (
+                    f"NEWS {index}  •  "
+                    f"Page {article['page']}  •  "
+                    f"Column {article['column']}"
+                )
+
+                with st.expander(
+                    title_text,
+                    expanded=True
+                ):
+
+                    # Metadata
+                    m1, m2, m3 = st.columns(3)
+
+                    with m1:
+                        st.write(
+                            f"**Source:** {article['source']}"
+                        )
+
+                    with m2:
+                        st.write(
+                            f"**Words:** {article['words']}"
+                        )
+
+                    with m3:
+                        st.write(
+                            f"**Quality:** {article['quality']}"
+                        )
+
+                    st.write(
+                        f"**Defence signals:** {signals}"
+                    )
+
+                    st.markdown(
+                        "---"
+                    )
+
+                    # Full article text.
+                    st.text(
+                        article["text"]
+                    )
+
+            # ------------------------------------------------
+            # Download
+            # ------------------------------------------------
+
+            download_text = make_download_text(
+                articles
+            )
+
+            st.markdown(
+                "---"
+            )
+
+            st.download_button(
+                label="⬇️ Download Defence Articles",
+                data=download_text,
+                file_name="defence_news_results.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
