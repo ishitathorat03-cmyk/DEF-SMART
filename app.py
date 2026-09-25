@@ -22,7 +22,7 @@ st.set_page_config(
 
 OCR_CONFIG = "--oem 3 --psm 3"
 
-MIN_ARTICLE_WORDS = 25
+MIN_ARTICLE_WORDS = 18
 MIN_BODY_WORDS = 18
 
 # Maximum number of article candidates allowed on one page
@@ -279,188 +279,309 @@ def contains_phrase(text, phrase):
 # STRICT DEFENCE CLASSIFIER
 # ============================================================
 
+# ============================================================
+# DEFENCE CLASSIFIER
+# ============================================================
+
 def defence_analysis(text):
 
     text = normalize_text(text).lower()
 
     words = word_count(text)
 
-    if words < MIN_ARTICLE_WORDS:
+    if words < 18:
         return False, [], 0
 
-    strong_phrases = []
+    # --------------------------------------------------------
+    # VERY STRONG DEFENCE PHRASES
+    # --------------------------------------------------------
 
-    for phrase in VERY_STRONG_PHRASES:
+    very_strong = [
+        "indian army",
+        "indian navy",
+        "indian air force",
+        "armed forces",
+        "corps commander",
+        "corps commanders",
+        "military operation",
+        "military operations",
+        "military exercise",
+        "military exercises",
+        "military deployment",
+        "military talks",
+        "air defence",
+        "air defense",
+        "missile strike",
+        "missile strikes",
+        "missile attack",
+        "missile attacks",
+        "drone strike",
+        "drone strikes",
+        "drone attack",
+        "drone attacks",
+        "naval exercise",
+        "naval exercises",
+        "defence ministry",
+        "defense ministry",
+        "ministry of defence",
+        "ministry of defense",
+        "border security",
+        "border forces",
+        "troop deployment",
+        "special forces",
+        "fighter aircraft",
+        "fighter jet",
+        "fighter jets",
+        "warship",
+        "warships",
+        "airbase",
+        "air base",
+        "submarine",
+        "submarines",
+        "artillery unit",
+        "military unit",
+        "military commander",
+        "military commanders",
+        "military personnel",
+        "security forces",
+        "line of actual control",
+        "line of control",
+    ]
+
+    # --------------------------------------------------------
+    # STRONG DEFENCE TERMS
+    # --------------------------------------------------------
+
+    strong = [
+        "army",
+        "navy",
+        "military",
+        "missile",
+        "missiles",
+        "drone",
+        "drones",
+        "troop",
+        "troops",
+        "soldier",
+        "soldiers",
+        "commander",
+        "commanders",
+        "brigade",
+        "battalion",
+        "regiment",
+        "artillery",
+        "warship",
+        "frigate",
+        "submarine",
+        "aircraft",
+        "fighter",
+        "helicopter",
+        "airbase",
+        "defence",
+        "defense",
+        "border",
+        "combat",
+        "weapon",
+        "weapons",
+        "ammunition",
+        "paramilitary",
+        "special forces",
+        "corps",
+        "irgc",
+        "air force",
+        "naval",
+        "lac",
+        "loc",
+        "operation",
+        "operations",
+        "forces",
+        "deployment",
+        "deploy",
+        "war",
+        "wars",
+        "attack",
+        "attacks",
+        "strike",
+        "strikes",
+    ]
+
+    # --------------------------------------------------------
+    # OBVIOUS NON-DEFENCE CONTEXT
+    # --------------------------------------------------------
+
+    non_defence = [
+        "newsmakers",
+        "bharatanatyam",
+        "dance",
+        "dancer",
+        "music",
+        "singer",
+        "film",
+        "movie",
+        "actor",
+        "actress",
+        "cricket",
+        "football",
+        "sports",
+        "sport",
+        "education",
+        "student",
+        "students",
+        "college",
+        "school",
+        "jobs",
+        "employment",
+        "business",
+        "economy",
+        "economic",
+        "hospital",
+        "hostel",
+        "rescue",
+        "rescued",
+        "volcano",
+        "earthquake",
+        "flood",
+        "weather",
+        "culture",
+        "cultural",
+    ]
+
+    # --------------------------------------------------------
+    # FIND SIGNALS
+    # --------------------------------------------------------
+
+    phrase_hits = []
+
+    for phrase in very_strong:
         if contains_phrase(text, phrase):
-            strong_phrases.append(phrase)
+            phrase_hits.append(phrase)
 
-    strong_terms = []
+    term_hits = []
 
-    for term in STRONG_TERMS:
+    for term in strong:
         if contains_phrase(text, term):
-            strong_terms.append(term)
+            term_hits.append(term)
 
-    non_defence = []
+    non_hits = []
 
-    for term in NON_DEFENCE_TOPICS:
-        if term in text:
-            non_defence.append(term)
+    for term in non_defence:
+        if contains_phrase(text, term):
+            non_hits.append(term)
 
-    strong_phrases = list(dict.fromkeys(strong_phrases))
-    strong_terms = list(dict.fromkeys(strong_terms))
-    non_defence = list(dict.fromkeys(non_defence))
+    phrase_hits = list(dict.fromkeys(phrase_hits))
+    term_hits = list(dict.fromkeys(term_hits))
+    non_hits = list(dict.fromkeys(non_hits))
 
     # --------------------------------------------------------
-    # Defence density
+    # LOOK AT BEGINNING OF ARTICLE
+    # Defence news normally establishes its subject early.
     # --------------------------------------------------------
 
-    total_hits = (
-        len(strong_phrases)
-        + len(strong_terms)
+    first_part = " ".join(
+        text.split()[:80]
     )
 
-    density = total_hits / max(words, 1)
+    first_hits = 0
+
+    for phrase in very_strong:
+        if contains_phrase(first_part, phrase):
+            first_hits += 3
+
+    for term in strong:
+        if contains_phrase(first_part, term):
+            first_hits += 1
 
     # --------------------------------------------------------
-    # No meaningful defence evidence
+    # COUNT ACTUAL OCCURRENCES
+    # --------------------------------------------------------
+
+    defence_occurrences = 0
+
+    for term in strong:
+        defence_occurrences += len(
+            re.findall(
+                r"(?<!\w)"
+                + re.escape(term)
+                + r"(?!\w)",
+                text
+            )
+        )
+
+    # --------------------------------------------------------
+    # SCORE
+    # --------------------------------------------------------
+
+    score = 0
+
+    score += len(phrase_hits) * 5
+    score += len(term_hits)
+
+    score += first_hits
+
+    score -= len(non_hits) * 2
+
+    # --------------------------------------------------------
+    # RULE 1
+    # One very strong military phrase + enough evidence.
+    # --------------------------------------------------------
+
+    if len(phrase_hits) >= 1 and score >= 7:
+
+        signals = (
+            phrase_hits
+            + term_hits
+        )
+
+        return (
+            True,
+            list(dict.fromkeys(signals))[:12],
+            score
+        )
+
+    # --------------------------------------------------------
+    # RULE 2
+    # Several military terms occurring repeatedly.
     # --------------------------------------------------------
 
     if (
-        len(strong_phrases) == 0
-        and len(strong_terms) < 4
+        len(term_hits) >= 3
+        and defence_occurrences >= 4
     ):
-        return False, [], 0
+
+        signals = (
+            phrase_hits
+            + term_hits
+        )
+
+        return (
+            True,
+            list(dict.fromkeys(signals))[:12],
+            score
+        )
 
     # --------------------------------------------------------
-    # Diplomatic / interview / profile protection
+    # RULE 3
+    # Defence evidence appears near beginning.
     # --------------------------------------------------------
 
-    diplomatic_context = any(
-        x in text
-        for x in [
-            "diplomatic",
-            "diplomacy",
-            "foreign policy",
-            "foreign relations",
-            "bilateral",
-            "interview",
-            "newsmakers",
-            "political",
-            "politics",
-            "visa",
-            "economy",
-        ]
-    )
-
-    if diplomatic_context:
-
-        if (
-            len(strong_phrases) < 2
-            and len(strong_terms) < 5
-        ):
-            return False, [], 0
-
-        if density < 0.028:
-            return False, [], 0
-
-    # --------------------------------------------------------
-    # Culture / entertainment protection
-    # --------------------------------------------------------
-
-    cultural_context = any(
-        x in text
-        for x in [
-            "dance",
-            "bharatanatyam",
-            "music",
-            "film",
-            "movie",
-            "actor",
-            "actress",
-            "singer",
-            "culture",
-            "cultural",
-        ]
-    )
-
-    if cultural_context:
-
-        if (
-            len(strong_phrases) < 2
-            and len(strong_terms) < 5
-        ):
-            return False, [], 0
-
-        if density < 0.035:
-            return False, [], 0
-
-    # --------------------------------------------------------
-    # Disaster/rescue protection
-    # --------------------------------------------------------
-
-    disaster_context = any(
-        x in text
-        for x in [
-            "rescue",
-            "rescued",
-            "hostel",
-            "hospital",
-            "volcano",
-            "earthquake",
-            "flood",
-            "collapse",
-        ]
-    )
-
-    if disaster_context:
-
-        if (
-            len(strong_phrases) < 2
-            and len(strong_terms) < 5
-        ):
-            return False, [], 0
-
-        if density < 0.035:
-            return False, [], 0
-
-    # --------------------------------------------------------
-    # ACCEPTANCE RULES
-    # --------------------------------------------------------
-
-    accepted = False
-
-    # Explicit military language.
-    if len(strong_phrases) >= 2:
-        accepted = True
-
-    # One explicit phrase + multiple supporting terms.
-    elif (
-        len(strong_phrases) >= 1
-        and len(strong_terms) >= 4
-        and density >= 0.025
+    if (
+        len(term_hits) >= 2
+        and first_hits >= 3
+        and defence_occurrences >= 3
     ):
-        accepted = True
 
-    # Multiple supporting military terms.
-    elif (
-        len(strong_terms) >= 6
-        and density >= 0.03
-    ):
-        accepted = True
+        signals = (
+            phrase_hits
+            + term_hits
+        )
 
-    if not accepted:
-        return False, [], 0
+        return (
+            True,
+            list(dict.fromkeys(signals))[:12],
+            score
+        )
 
-    signals = (
-        strong_phrases
-        + strong_terms
-    )
-
-    signals = list(
-        dict.fromkeys(signals)
-    )
-
-    return True, signals[:12], len(signals)
+    return False, [], score
 
 
 # ============================================================
