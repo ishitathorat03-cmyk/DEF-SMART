@@ -1141,14 +1141,24 @@ def split_column_into_articles(lines):
 
     current = []
 
-    for i, line in enumerate(lines):
+    for line in lines:
 
-        if not line["text"].strip():
+        text = clean_text(
+            line["text"]
+        )
+
+        if not text:
             continue
+
+        # ----------------------------------------------------
+        # First line
+        # ----------------------------------------------------
 
         if not current:
 
-            current.append(line)
+            current.append(
+                line
+            )
 
             continue
 
@@ -1166,6 +1176,10 @@ def split_column_into_articles(lines):
             )
         )
 
+        # ----------------------------------------------------
+        # Headline detection
+        # ----------------------------------------------------
+
         headline = is_headline(
             line
         )
@@ -1176,56 +1190,40 @@ def split_column_into_articles(lines):
         )
 
         # ----------------------------------------------------
-        # Large whitespace boundary
+        # VERY large whitespace.
+        #
+        # Only use this when the current article already
+        # contains enough text.
         # ----------------------------------------------------
-
-        large_gap = (
-            vertical_gap
-            > max(
-                20,
-                previous_height * 2.2
-            )
-        )
 
         very_large_gap = (
             vertical_gap
             > max(
-                40,
-                previous_height * 3.5
+                55,
+                previous_height * 4.5
             )
         )
 
         # ----------------------------------------------------
-        # New headline after body text
+        # Strong headline boundary.
+        #
+        # Require a significant font-size difference.
         # ----------------------------------------------------
 
         new_headline = (
             headline
-            and current_words >= 18
+            and current_words >= 60
             and line["height"]
-            > previous["height"] * 1.20
+            >= previous["height"] * 1.35
         )
 
         # ----------------------------------------------------
-        # Start a new article
+        # Start a new article.
         # ----------------------------------------------------
 
         if (
             very_large_gap
             or new_headline
-        ):
-
-            articles.append(
-                current
-            )
-
-            current = [
-                line
-            ]
-
-        elif (
-            large_gap
-            and current_words >= 30
         ):
 
             articles.append(
@@ -1242,12 +1240,35 @@ def split_column_into_articles(lines):
                 line
             )
 
+    # --------------------------------------------------------
+    # Final article
+    # --------------------------------------------------------
+
     if current:
+
         articles.append(
             current
         )
 
-    return articles
+    # --------------------------------------------------------
+    # REMOVE TINY FRAGMENTS
+    # --------------------------------------------------------
+
+    cleaned_articles = []
+
+    for article in articles:
+
+        text = article_text(
+            article
+        )
+
+        if word_count(text) >= 18:
+
+            cleaned_articles.append(
+                article
+            )
+
+    return cleaned_articles
 
 
 # ============================================================
@@ -1419,75 +1440,40 @@ def remove_duplicates(articles):
 
 
 # ============================================================
-# PROCESS ONE PAGE
+# BUILD ARTICLE CANDIDATES FROM WORDS
 # ============================================================
 
-def process_page(
-    page,
-    page_number
+def extract_articles_from_words(
+    words,
+    page_number,
+    source
 ):
 
-    # --------------------------------------------------------
-    # Try native word extraction.
-    # --------------------------------------------------------
-
-    native_words = extract_pdf_words(
-        page
-    )
-
-    native_word_count = len(
-        native_words
-    )
-
-    # --------------------------------------------------------
-    # Use native PDF when enough words
-    # are available.
-    # --------------------------------------------------------
-
-    if native_word_count >= 50:
-
-        words = native_words
-        source = "Native PDF"
-
-    else:
-
-        image = render_page(
-            page,
-            dpi=220
-        )
-
-        words = extract_ocr_words(
-            image
-        )
-
-        source = "OCR"
-
     if not words:
-        return [], source
+        return []
 
     # --------------------------------------------------------
-    # Lines
+    # Reconstruct lines
     # --------------------------------------------------------
 
-    lines = build_lines(
-        words
-    )
+    lines = build_lines(words)
 
     if not lines:
-        return [], source
+        return []
 
     # --------------------------------------------------------
-    # Columns
+    # Detect newspaper columns
     # --------------------------------------------------------
 
-    columns = detect_columns(
-        lines
-    )
+    columns = detect_columns(lines)
+
+    if not columns:
+        columns = [lines]
 
     page_articles = []
 
     # --------------------------------------------------------
-    # Process each column separately.
+    # Process every column
     # --------------------------------------------------------
 
     for column_number, column in enumerate(
@@ -1501,6 +1487,17 @@ def process_page(
             )
         )
 
+        # ----------------------------------------------------
+        # FALLBACK:
+        # If segmentation is too aggressive, create larger
+        # candidate windows from the column.
+        # ----------------------------------------------------
+
+        if not article_candidates:
+            article_candidates = [
+                column
+            ]
+
         for candidate_number, candidate in enumerate(
             article_candidates,
             start=1
@@ -1513,15 +1510,20 @@ def process_page(
                 candidate
             )
 
-            if word_count(text) < MIN_ARTICLE_WORDS:
-                continue
-
-            quality = quality_score(
+            words_in_article = word_count(
                 text
             )
 
-            if quality < 2:
+            if words_in_article < MIN_ARTICLE_WORDS:
                 continue
+
+            # ------------------------------------------------
+            # Defence classification FIRST
+            # ------------------------------------------------
+            # Do not reject a candidate only because of the
+            # quality score. Newspaper OCR/layout can make
+            # sentence reconstruction imperfect.
+            # ------------------------------------------------
 
             is_defence, signals, signal_count = (
                 defence_analysis(
@@ -1532,6 +1534,15 @@ def process_page(
             if not is_defence:
                 continue
 
+            quality = quality_score(
+                text
+            )
+
+            # Accept defence article even when OCR/layout
+            # causes a lower quality score.
+            if quality < 1:
+                quality = 1
+
             page_articles.append({
                 "page": page_number,
                 "column": column_number,
@@ -1541,10 +1552,121 @@ def process_page(
                 "signals": signals,
                 "signal_count": signal_count,
                 "quality": quality,
-                "words": word_count(text),
+                "words": words_in_article,
             })
 
-    return page_articles, source
+    return page_articles
+
+
+# ============================================================
+# PROCESS ONE PAGE
+# ============================================================
+
+def process_page(
+    page,
+    page_number
+):
+
+    # ========================================================
+    # PASS 1 — NATIVE PDF
+    # ========================================================
+
+    native_words = extract_pdf_words(
+        page
+    )
+
+    native_word_count = len(
+        native_words
+    )
+
+    # --------------------------------------------------------
+    # If native PDF contains enough text, try it first.
+    # --------------------------------------------------------
+
+    if native_word_count >= 50:
+
+        native_articles = (
+            extract_articles_from_words(
+                native_words,
+                page_number,
+                "Native PDF"
+            )
+        )
+
+        # ----------------------------------------------------
+        # IMPORTANT:
+        # If native extraction found defence articles,
+        # return immediately.
+        # ----------------------------------------------------
+
+        if native_articles:
+
+            return (
+                native_articles,
+                "Native PDF"
+            )
+
+        # ----------------------------------------------------
+        # NATIVE EXTRACTION FAILED TO FIND ANY DEFENCE NEWS.
+        #
+        # This is where the old app stopped.
+        #
+        # NEW BEHAVIOUR:
+        # Render the page and run real OCR.
+        # ----------------------------------------------------
+
+        image = render_page(
+            page,
+            dpi=220
+        )
+
+        ocr_words = extract_ocr_words(
+            image
+        )
+
+        ocr_articles = (
+            extract_articles_from_words(
+                ocr_words,
+                page_number,
+                "OCR"
+            )
+        )
+
+        if ocr_articles:
+
+            return (
+                ocr_articles,
+                "OCR"
+            )
+
+        # Nothing found even after OCR.
+        return [], "Native PDF"
+
+    # ========================================================
+    # PASS 2 — OCR
+    # ========================================================
+
+    image = render_page(
+        page,
+        dpi=220
+    )
+
+    ocr_words = extract_ocr_words(
+        image
+    )
+
+    ocr_articles = (
+        extract_articles_from_words(
+            ocr_words,
+            page_number,
+            "OCR"
+        )
+    )
+
+    return (
+        ocr_articles,
+        "OCR"
+    )
 
 
 # ============================================================
@@ -1866,21 +1988,21 @@ if uploaded_file:
 
         def update_progress(value):
 
-            progress.progress(
-                min(
-                    max(
-                        value,
-                        0
-                    ),
-                    1
-                )
-            )
+    progress.progress(
+        min(
+            max(
+                value,
+                0
+            ),
+            1
+        )
+    )
 
-            status.info(
-                f"Scanning page "
-                f"{int(value * len(selected_pages))}"
-                f"/{len(selected_pages)}..."
-            )
+    status.info(
+        f"Scanning newspaper: "
+        f"{int(value * len(selected_pages))}"
+        f"/{len(selected_pages)} pages..."
+    )
 
         try:
 
