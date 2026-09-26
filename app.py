@@ -1988,6 +1988,18 @@ if uploaded_file:
 
         def update_progress(value):
 
+            progress = st.progress(
+    0
+)
+
+status = st.empty()
+
+status.info(
+    "Reading newspaper layout..."
+)
+
+def update_progress(value):
+
     progress.progress(
         min(
             max(
@@ -2004,18 +2016,17 @@ if uploaded_file:
         f"/{len(selected_pages)} pages..."
     )
 
-        try:
+try:
 
-            (
-                articles,
-                native_count,
-                ocr_count
-            ) = scan_pdf(
-                pdf_bytes,
-                selected_pages,
-                update_progress
-            )
-
+    (
+        articles,
+        native_count,
+        ocr_count
+    ) = scan_pdf(
+        pdf_bytes,
+        selected_pages,
+        update_progress
+    )
         except Exception as e:
 
             progress.empty()
